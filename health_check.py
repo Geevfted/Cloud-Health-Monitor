@@ -1,44 +1,45 @@
 import time
 import random
 import json
-import boto3
+import smtplib
+from email.message import EmailMessage
 
-LOCALSTACK_URL = "http://localhost:4566"
-GROUP_NAME = "/cloud-monitor/health-checks"
-STREAM_NAME = "heartbeat-monitor"
+# --- CONFIGURATION ---
+SENDER_EMAIL = "your-email@gmail.com"
+SENDER_PASSWORD = "your-app-password"  # The 16-char code
+RECEIVER_EMAIL = "your-email@gmail.com"
 
-def send_log(client, message, status):
-    # AWS requires timestamp in milliseconds
-    timestamp = int(round(time.time() * 1000))
+def send_email_alert(log_entry):
+    msg = EmailMessage()
+    msg.set_content(f"System Failure Detected!\n\nDetails:\n{json.dumps(log_entry, indent=4)}")
+    msg['Subject'] = f"ALERT: System Status {log_entry['status']}"
+    msg['From'] = SENDER_EMAIL
+    msg['To'] = RECEIVER_EMAIL
+
+    try:
+        # Connect to Gmail's server (SMTP)
+        with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
+            smtp.login(SENDER_EMAIL, SENDER_PASSWORD)
+            smtp.send_message(msg)
+            print("Email alert sent successfully!")
+    except Exception as e:
+        print(f"Failed to send email: {e}")
+
+def run_check():
+    is_healthy = random.random() > 0.2
+    status = 200 if is_healthy else 500
     
-    log_event = {
-        'timestamp': timestamp,
-        'message': json.dumps({
-            "status": status,
-            "message": message,
-            "system": "Cloud-Monitor-01"
-        })
+    log_entry = {
+        "status": status,
+        "message": "Healthy" if is_healthy else "CRITICAL FAILURE",
+        "timestamp": time.ctime()
     }
+
+    print(f"Check Result: {status}")
     
-    client.put_log_events(
-        logGroupName=GROUP_NAME,
-        logStreamName=STREAM_NAME,
-        logEvents=[log_event]
-    )
+    if status == 500:
+        print("Triggering Email Alert...")
+        send_email_alert(log_entry)
 
 if __name__ == "__main__":
-    # Initialize the bridge
-    client = boto3.client("logs", 
-                          endpoint_url=LOCALSTACK_URL, 
-                          region_name="us-east-1",
-                          aws_access_key_id="test", 
-                          aws_secret_access_key="test")
-    
-    # Run a health check and send it to the "Cloud"
-    is_healthy = random.random() > 0.2
-    msg = "System is Healthy" if is_healthy else "System is Unhealthy"
-    stat = 200 if is_healthy else 500
-    
-    print(f"Attempting to send log: {msg}...")
-    send_log(client, msg, stat)
-    print("Log sent to LocalStack CloudWatch!")
+    run_check()
